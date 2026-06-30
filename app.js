@@ -1,16 +1,15 @@
 // ─── STATE ────────────────────────────────────────────────────────────────────
 const state = {
-  msalInstance:       null,
-  account:            null,
-  cachedAccessToken:  null,  // token passed directly from auth-end.html popup
-  siteId:             null,
-  listId:             null,
-  items:              [],
-  selectedItem:       null,
-  workItemField:      null,
-  statusNotesField:   null,
-  inTeams:            false,
-  teamsToken:         null,
+  msalInstance:     null,
+  account:          null,
+  teamsAccessToken: null,  // Graph access token acquired via PKCE popup in Teams
+  siteId:           null,
+  listId:           null,
+  items:            [],
+  selectedItem:     null,
+  workItemField:    null,
+  statusNotesField: null,
+  inTeams:          false,
 };
 
 // ─── DOM REFS ─────────────────────────────────────────────────────────────────
@@ -128,12 +127,8 @@ async function interactiveSignIn() {
         failureCallback: reject,
       });
     });
-    // Grab account from MSAL cache (auth-end.html wrote it to localStorage).
-    const accounts = state.msalInstance.getAllAccounts();
-    if (accounts.length > 0) state.account = accounts[0];
-    // Store the token so getToken() can return it directly on the next call
-    // without needing another silent request.
-    state.cachedAccessToken = accessToken;
+    // Store for the whole session — valid ~1 hour, reused by every getToken() call.
+    state.teamsAccessToken = accessToken;
     return accessToken;
   }
 
@@ -174,16 +169,13 @@ async function initMsal() {
 
 // ─── TOKEN ACQUISITION (unified) ──────────────────────────────────────────────
 async function getToken() {
-  // Use the token passed directly from the auth popup (good for ~1 hour).
-  if (state.cachedAccessToken) {
-    const token = state.cachedAccessToken;
-    // Clear it so the next call attempts a proper silent refresh instead.
-    state.cachedAccessToken = null;
-    return token;
+  // Inside Teams: reuse the token from the PKCE popup for the whole session
+  // (~1 hour). If it expires, interactiveSignIn will re-open the popup.
+  if (state.inTeams && state.teamsAccessToken) {
+    return state.teamsAccessToken;
   }
 
-  // After the first call, try MSAL silent refresh (uses the refresh token
-  // that auth-end.html stored in localStorage).
+  // Outside Teams: use MSAL silent refresh (cached session from loginPopup).
   if (state.account) {
     try {
       const res = await state.msalInstance.acquireTokenSilent({
@@ -470,21 +462,7 @@ async function init() {
     return;
   }
 
-  // Inside Teams → attempt silent SSO first
-  if (state.inTeams) {
-    showLoading('Signing you in…');
-    try {
-      await getTeamsToken();          // populates state.account from JWT
-      await enterApp();
-      return;
-    } catch (e) {
-      // Teams identity context itself failed (rare) → fall through to manual sign-in
-      hideLoading();
-      showError(el.signinError,
-        'Automatic sign-in failed: ' + (e?.message || e) +
-        '. Click "Sign In" to authenticate manually.');
-    }
-  }
+  // Inside Teams: show the sign-in button — clicking it opens the PKCE popup.
 
   // Outside Teams or SSO failed → check for existing MSAL session
   const alreadySignedIn = state.account !== null;

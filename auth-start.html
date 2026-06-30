@@ -3,28 +3,56 @@
 <head>
   <meta charset="UTF-8" />
   <title>Signing in…</title>
-  <script src="msal-browser.min.js"></script>
   <script src="config.js"></script>
 </head>
 <body>
   <p style="font-family:sans-serif;color:#1E3C4F;padding:20px;">Redirecting to sign-in…</p>
   <script>
     (async function () {
-      // No Teams SDK needed here — this page just redirects to Microsoft login.
-      // Teams SDK app.initialize() hangs in popup windows; skip it entirely.
-      const msalInstance = new msal.PublicClientApplication({
-        auth: {
-          clientId:    CONFIG.clientId,
-          authority:   `https://login.microsoftonline.com/${CONFIG.tenantId}`,
-          redirectUri: window.location.origin + '/auth-end.html',
-        },
-        cache: { cacheLocation: 'localStorage' },
-      });
-      await msalInstance.initialize();
+      // Build and navigate to Microsoft's OAuth authorization URL manually,
+      // using PKCE so we can exchange the code for a token in auth-end.html
+      // without needing a client secret.
+      //
+      // We deliberately avoid MSAL's loginRedirect here — MSAL's internal
+      // navigation is unreliable inside Teams' auth popup windows.
 
-      // Redirect this popup window to Microsoft's login page.
-      // Microsoft will redirect back to auth-end.html when done.
-      await msalInstance.loginRedirect({ scopes: CONFIG.scopes });
+      function randomString(len) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+        const arr = new Uint8Array(len);
+        crypto.getRandomValues(arr);
+        return Array.from(arr, b => chars[b % chars.length]).join('');
+      }
+
+      async function sha256base64url(str) {
+        const data = new TextEncoder().encode(str);
+        const digest = await crypto.subtle.digest('SHA-256', data);
+        return btoa(String.fromCharCode(...new Uint8Array(digest)))
+          .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      }
+
+      const verifier  = randomString(96);
+      const challenge = await sha256base64url(verifier);
+      const state     = randomString(16);
+
+      // Store across the redirect (auth-end.html reads these)
+      localStorage.setItem('pkce_verifier', verifier);
+      localStorage.setItem('pkce_state',    state);
+
+      const redirectUri = window.location.origin + '/auth-end.html';
+
+      const params = new URLSearchParams({
+        client_id:             CONFIG.clientId,
+        response_type:         'code',
+        redirect_uri:          redirectUri,
+        scope:                 [...CONFIG.scopes, 'offline_access'].join(' '),
+        state:                 state,
+        code_challenge:        challenge,
+        code_challenge_method: 'S256',
+        response_mode:         'query',
+      });
+
+      window.location.href =
+        `https://login.microsoftonline.com/${CONFIG.tenantId}/oauth2/v2.0/authorize?${params}`;
     })();
   </script>
 </body>

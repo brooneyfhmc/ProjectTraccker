@@ -4,43 +4,65 @@
   <meta charset="UTF-8" />
   <title>Finishing sign-in…</title>
   <script src="https://res.cdn.office.net/teams-js/2.22.0/js/MicrosoftTeams.min.js"></script>
-  <script src="msal-browser.min.js"></script>
   <script src="config.js"></script>
 </head>
 <body>
   <p style="font-family:sans-serif;color:#1E3C4F;padding:20px;">Finishing sign-in…</p>
   <script>
     (async function () {
-      // Initialize Teams SDK with a timeout — it may hang in popup windows.
-      // notifySuccess/notifyFailure must be called regardless.
+      // Initialize Teams SDK with a timeout — may be slow in popup windows.
       await Promise.race([
         microsoftTeams.app.initialize(),
         new Promise(resolve => setTimeout(resolve, 2000)),
       ]);
 
-      const msalInstance = new msal.PublicClientApplication({
-        auth: {
-          clientId:    CONFIG.clientId,
-          authority:   `https://login.microsoftonline.com/${CONFIG.tenantId}`,
-          redirectUri: window.location.origin + '/auth-end.html',
-        },
-        cache: { cacheLocation: 'localStorage' },
-      });
-      await msalInstance.initialize();
-
-      try {
-        const result = await msalInstance.handleRedirectPromise();
-        if (result && result.account) {
-          msalInstance.setActiveAccount(result.account);
-          // Pass the access token directly back so the main tab doesn't need
-          // a second round-trip to acquire it.
-          microsoftTeams.authentication.notifySuccess(result.accessToken);
-        } else {
-          microsoftTeams.authentication.notifyFailure('no_account_returned');
-        }
-      } catch (err) {
-        microsoftTeams.authentication.notifyFailure(err.errorCode || err.message || 'auth_failed');
+      function fail(msg) {
+        microsoftTeams.authentication.notifyFailure(msg);
       }
+
+      // Read the PKCE verifier and state that auth-start.html stored.
+      const verifier      = localStorage.getItem('pkce_verifier');
+      const expectedState = localStorage.getItem('pkce_state');
+      localStorage.removeItem('pkce_verifier');
+      localStorage.removeItem('pkce_state');
+
+      // Microsoft redirects here with ?code=...&state=...
+      const params = new URLSearchParams(window.location.search);
+      const code   = params.get('code');
+      const state  = params.get('state');
+      const error  = params.get('error');
+
+      if (error) return fail(error + ': ' + params.get('error_description'));
+      if (!code)  return fail('no_auth_code');
+      if (state !== expectedState) return fail('state_mismatch');
+      if (!verifier) return fail('no_pkce_verifier');
+
+      // Exchange the auth code for tokens (PKCE — no client secret needed).
+      const redirectUri = window.location.origin + '/auth-end.html';
+      const body = new URLSearchParams({
+        grant_type:    'authorization_code',
+        client_id:     CONFIG.clientId,
+        code:          code,
+        redirect_uri:  redirectUri,
+        code_verifier: verifier,
+        scope:         [...CONFIG.scopes, 'offline_access'].join(' '),
+      });
+
+      let tokenData;
+      try {
+        const resp = await fetch(
+          `https://login.microsoftonline.com/${CONFIG.tenantId}/oauth2/v2.0/token`,
+          { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body }
+        );
+        tokenData = await resp.json();
+      } catch (e) {
+        return fail('token_fetch_error: ' + e.message);
+      }
+
+      if (tokenData.error) return fail(tokenData.error + ': ' + tokenData.error_description);
+
+      // Pass the access token directly back to the main tab.
+      microsoftTeams.authentication.notifySuccess(tokenData.access_token);
     })();
   </script>
 </body>
