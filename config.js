@@ -18,6 +18,10 @@ const CONFIG = {
   workItemField:   "Work_x0020_Item",       // Display name: "Work Item"
   statusNotesField:"Status_x0020_Notes",    // Display name: "Status Notes"
 
+  // SSO scope URI — must match the Application ID URI you set in "Expose an API"
+  // Format: api://<your-static-web-app-domain>/<client-id>
+  ssoScope: `api://salmon-forest-08b7a6d0f.7.azurestaticapps.net/f7991857-dc4b-4a3b-a417-5479e4098691/access_as_user`,
+
   // Microsoft Graph scopes needed
   scopes: [
     "https://graph.microsoft.com/Sites.ReadWrite.All",

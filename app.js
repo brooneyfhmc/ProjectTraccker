@@ -1,13 +1,15 @@
 // ─── STATE ────────────────────────────────────────────────────────────────────
 const state = {
-  msalInstance: null,
-  account:      null,
-  siteId:       null,
-  listId:       null,
-  items:        [],          // raw list items [{id, workItem, statusNotes}, …]
-  selectedItem: null,
-  workItemField:    null,    // resolved internal field name
+  msalInstance:     null,
+  account:          null,
+  siteId:           null,
+  listId:           null,
+  items:            [],
+  selectedItem:     null,
+  workItemField:    null,
   statusNotesField: null,
+  inTeams:          false,   // true when running inside Teams client
+  teamsToken:       null,    // raw Teams SSO token (exchanged for Graph token)
 };
 
 // ─── DOM REFS ─────────────────────────────────────────────────────────────────
@@ -20,6 +22,7 @@ const el = {
   signinError:   $('signin-error'),
   signoutBtn:    $('signout-btn'),
   userName:      $('user-name'),
+  userAvatar:    $('user-avatar'),
   projectSelect: $('project-select'),
   loadError:     $('load-error'),
   detailPanel:   $('detail-panel'),
@@ -50,6 +53,66 @@ function clearError(elRef) {
   elRef.classList.add('hidden');
 }
 
+// ─── TEAMS SDK INIT ───────────────────────────────────────────────────────────
+async function initTeams() {
+  try {
+    await microsoftTeams.app.initialize();
+    const ctx = await microsoftTeams.app.getContext();
+    document.body.dataset.theme = ctx.app?.theme || 'default';
+    microsoftTeams.app.registerOnThemeChangeHandler(t => { document.body.dataset.theme = t; });
+    state.inTeams = true;
+    return ctx;
+  } catch {
+    state.inTeams = false;
+    return null;
+  }
+}
+
+// ─── TEAMS SSO ───────────────────────────────────────────────────────────────
+// Teams passes the user's existing login silently — no popup needed.
+function getTeamsToken() {
+  return new Promise((resolve, reject) => {
+    microsoftTeams.authentication.getAuthToken({
+      successCallback: resolve,
+      failureCallback: reject,
+    });
+  });
+}
+
+// The Teams SSO token is scoped only to your app (audience = clientId).
+// To call Graph API we need to exchange it for a Graph token via MSAL
+// On-Behalf-Of flow — handled transparently by acquireTokenSilent below.
+async function getTokenViaTeamsSSO() {
+  const teamsToken = await getTeamsToken();
+  state.teamsToken = teamsToken;
+
+  // Decode name/email from the Teams token (it's a standard JWT)
+  try {
+    const payload = JSON.parse(atob(teamsToken.split('.')[1]));
+    state.account = {
+      name:     payload.name || payload.preferred_username || '',
+      username: payload.preferred_username || payload.upn || '',
+    };
+  } catch { /* ignore decode errors */ }
+
+  // Use MSAL to silently exchange for a Graph-scoped token (OBO flow)
+  const msalRequest = {
+    scopes: CONFIG.scopes,
+    // Provide the Teams token as login hint so MSAL can find/create the account
+    loginHint: state.account?.username,
+  };
+
+  try {
+    const result = await state.msalInstance.acquireTokenSilent(msalRequest);
+    return result.accessToken;
+  } catch {
+    // If silent OBO fails, fall back to interactive (rare — usually a consent issue)
+    const result = await state.msalInstance.acquireTokenPopup(msalRequest);
+    state.account = result.account;
+    return result.accessToken;
+  }
+}
+
 // ─── MSAL INIT ────────────────────────────────────────────────────────────────
 async function initMsal() {
   const msalConfig = {
@@ -64,36 +127,39 @@ async function initMsal() {
   state.msalInstance = new msal.PublicClientApplication(msalConfig);
   await state.msalInstance.initialize();
 
-  // Handle redirect response (popup not used in Teams – use redirect flow)
   const response = await state.msalInstance.handleRedirectPromise();
   if (response) {
     state.account = response.account;
-  } else {
-    const accounts = state.msalInstance.getAllAccounts();
-    if (accounts.length > 0) state.account = accounts[0];
+    return true;
   }
-
-  return !!state.account;
+  const accounts = state.msalInstance.getAllAccounts();
+  if (accounts.length > 0) {
+    state.account = accounts[0];
+    return true;
+  }
+  return false;
 }
 
-// ─── AUTH ─────────────────────────────────────────────────────────────────────
+// ─── TOKEN ACQUISITION (unified) ──────────────────────────────────────────────
 async function getToken() {
+  // Inside Teams: use SSO exchange
+  if (state.inTeams) {
+    return getTokenViaTeamsSSO();
+  }
+
+  // Outside Teams (browser): standard MSAL silent/popup
   const request = { scopes: CONFIG.scopes, account: state.account };
   try {
     const res = await state.msalInstance.acquireTokenSilent(request);
     return res.accessToken;
   } catch {
-    // Silent failed → interactive
-    try {
-      const res = await state.msalInstance.acquireTokenPopup(request);
-      state.account = res.account;
-      return res.accessToken;
-    } catch (e) {
-      throw new Error('Authentication failed: ' + e.message);
-    }
+    const res = await state.msalInstance.acquireTokenPopup(request);
+    state.account = res.account;
+    return res.accessToken;
   }
 }
 
+// ─── STANDARD AUTH (browser fallback) ────────────────────────────────────────
 async function signIn() {
   clearError(el.signinError);
   el.signinBtn.disabled = true;
@@ -107,12 +173,17 @@ async function signIn() {
   } catch (e) {
     showError(el.signinError, e.message || 'Sign-in failed. Please try again.');
     el.signinBtn.disabled = false;
-    el.signinBtn.textContent = 'Sign In';
+    el.signinBtn.textContent = 'Sign In with Microsoft';
   }
 }
 
 function signOut() {
-  state.msalInstance.logoutPopup({ account: state.account });
+  if (state.inTeams) {
+    // Can't truly sign out of Teams SSO — just reload
+    window.location.reload();
+  } else {
+    state.msalInstance.logoutPopup({ account: state.account });
+  }
 }
 
 // ─── GRAPH HELPERS ────────────────────────────────────────────────────────────
@@ -136,13 +207,9 @@ async function graphFetch(path, options = {}) {
 
 // ─── SHAREPOINT DISCOVERY ─────────────────────────────────────────────────────
 async function resolveSiteAndList() {
-  // 1. Get site ID
-  const siteRes = await graphFetch(
-    `/sites/${CONFIG.sharePointHost}:${CONFIG.sitePath}`
-  );
+  const siteRes = await graphFetch(`/sites/${CONFIG.sharePointHost}:${CONFIG.sitePath}`);
   state.siteId = siteRes.id;
 
-  // 2. Get list ID by display name
   const listsRes = await graphFetch(`/sites/${state.siteId}/lists`);
   const list = listsRes.value.find(
     l => l.displayName.toLowerCase() === CONFIG.listName.toLowerCase()
@@ -152,52 +219,30 @@ async function resolveSiteAndList() {
 }
 
 // ─── FIELD NAME RESOLUTION ────────────────────────────────────────────────────
-// SharePoint stores column internal names differently from display names.
-// We auto-detect by fetching a single item and inspecting field keys.
 async function resolveFieldNames(sampleFields) {
   const keys = Object.keys(sampleFields);
-
   function bestMatch(candidates) {
     for (const c of candidates) {
-      if (keys.some(k => k.toLowerCase() === c.toLowerCase())) {
-        return keys.find(k => k.toLowerCase() === c.toLowerCase());
-      }
+      const found = keys.find(k => k.toLowerCase() === c.toLowerCase());
+      if (found) return found;
     }
     return null;
   }
-
-  state.workItemField = bestMatch([
-    CONFIG.workItemField,
-    'Work_x0020_Item', 'WorkItem', 'Work Item', 'Title', 'Project',
-  ]);
-
-  state.statusNotesField = bestMatch([
-    CONFIG.statusNotesField,
-    'Status_x0020_Notes', 'StatusNotes', 'Status Notes', 'Notes',
-  ]);
-
-  if (!state.workItemField) {
-    // Fall back to Title if nothing matches
-    state.workItemField = 'Title';
-  }
+  state.workItemField    = bestMatch([CONFIG.workItemField, 'Work_x0020_Item', 'WorkItem', 'Work Item', 'Title', 'Project']);
+  state.statusNotesField = bestMatch([CONFIG.statusNotesField, 'Status_x0020_Notes', 'StatusNotes', 'Status Notes', 'Notes']);
+  if (!state.workItemField) state.workItemField = 'Title';
 }
 
 // ─── LIST DATA ────────────────────────────────────────────────────────────────
 async function loadListItems() {
   const res = await graphFetch(
-    `/sites/${state.siteId}/lists/${state.listId}/items` +
-    `?$expand=fields&$top=500&$orderby=fields/Title asc`
+    `/sites/${state.siteId}/lists/${state.listId}/items?$expand=fields&$top=500&$orderby=fields/Title asc`
   );
-
   const raw = res.value || [];
-  if (raw.length === 0) return [];
-
-  // Auto-detect field names from first item
-  await resolveFieldNames(raw[0].fields);
-
+  if (raw.length > 0) await resolveFieldNames(raw[0].fields);
   return raw.map(item => ({
     id:          item.id,
-    workItem:    item.fields[state.workItemField] || '(unnamed)',
+    workItem:    item.fields[state.workItemField]    || '(unnamed)',
     statusNotes: item.fields[state.statusNotesField] || '',
   }));
 }
@@ -209,12 +254,8 @@ async function refreshItems() {
     state.items = await loadListItems();
     populateDropdown();
     if (state.selectedItem) {
-      // Keep selection and refresh its data
       const updated = state.items.find(i => i.id === state.selectedItem.id);
-      if (updated) {
-        state.selectedItem = updated;
-        renderStatusHistory();
-      }
+      if (updated) { state.selectedItem = updated; renderStatusHistory(); }
     }
   } catch (e) {
     showError(el.loadError, 'Failed to load projects: ' + e.message);
@@ -226,32 +267,15 @@ async function refreshItems() {
 // ─── DROPDOWN ─────────────────────────────────────────────────────────────────
 function populateDropdown() {
   el.projectSelect.innerHTML = '';
-
   if (state.items.length === 0) {
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = '— No projects found —';
-    el.projectSelect.appendChild(opt);
+    el.projectSelect.appendChild(Object.assign(document.createElement('option'), { value: '', textContent: '— No projects found —' }));
     return;
   }
-
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = '— Select a project —';
-  el.projectSelect.appendChild(placeholder);
-
-  // Group by unique Work Item values; if duplicates, append ID
+  el.projectSelect.appendChild(Object.assign(document.createElement('option'), { value: '', textContent: '— Select a project —' }));
   state.items.forEach(item => {
-    const opt = document.createElement('option');
-    opt.value = item.id;
-    opt.textContent = item.workItem;
-    el.projectSelect.appendChild(opt);
+    el.projectSelect.appendChild(Object.assign(document.createElement('option'), { value: item.id, textContent: item.workItem }));
   });
-
-  // Restore previous selection if still present
-  if (state.selectedItem) {
-    el.projectSelect.value = state.selectedItem.id;
-  }
+  if (state.selectedItem) el.projectSelect.value = state.selectedItem.id;
 }
 
 function onProjectChange() {
@@ -259,64 +283,49 @@ function onProjectChange() {
   clearError(el.submitError);
   el.submitStatus.textContent = '';
   el.updateText.value = '';
-
-  if (!id) {
-    state.selectedItem = null;
-    el.detailPanel.classList.add('hidden');
-    return;
-  }
-
+  if (!id) { state.selectedItem = null; el.detailPanel.classList.add('hidden'); return; }
   state.selectedItem = state.items.find(i => i.id === id) || null;
-  if (state.selectedItem) {
-    el.detailPanel.classList.remove('hidden');
-    renderStatusHistory();
-  }
+  if (state.selectedItem) { el.detailPanel.classList.remove('hidden'); renderStatusHistory(); }
 }
 
-// ─── STATUS HISTORY RENDERING ─────────────────────────────────────────────────
+// ─── STATUS HISTORY ───────────────────────────────────────────────────────────
 function renderStatusHistory() {
   const notes = (state.selectedItem?.statusNotes || '').trim();
-  if (!notes) {
-    el.statusHistory.innerHTML = '<p class="placeholder-text">No status notes yet.</p>';
-    return;
-  }
+  if (!notes) { el.statusHistory.innerHTML = '<p class="placeholder-text">No status notes yet.</p>'; return; }
 
-  // Parse entries separated by "───" dividers inserted by this app,
-  // or fall back to rendering the raw text if legacy format.
   const entries = notes.split(/\n?───+\n?/).filter(s => s.trim());
-  if (entries.length === 0) {
-    el.statusHistory.innerHTML = '<p class="placeholder-text">No status notes yet.</p>';
-    return;
-  }
+  if (entries.length === 0) { el.statusHistory.innerHTML = '<p class="placeholder-text">No status notes yet.</p>'; return; }
 
   el.statusHistory.innerHTML = entries.reverse().map(entry => {
     const lines = entry.trim().split('\n');
-    // First line might be a header like "[2026-06-30 | Brian Rooney]"
     const headerMatch = lines[0].match(/^\[(.+?)\]$/);
     if (headerMatch) {
-      const meta = headerMatch[1];
-      const body = lines.slice(1).join('\n').trim();
+      const parts   = headerMatch[1].split('|').map(s => s.trim());
+      const datePart = parts[0] || '';
+      const author   = parts[1] || '';
+      const initials = author.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+      const body     = lines.slice(1).join('\n').trim();
       return `
         <div class="status-entry">
-          <div class="entry-meta">${escHtml(meta)}</div>
+          <div class="entry-meta">
+            <div class="entry-avatar">${escHtml(initials)}</div>
+            <span class="entry-author">${escHtml(author)}</span>
+            <span class="entry-date">${escHtml(datePart)}</span>
+          </div>
           <div class="entry-body">${escHtml(body)}</div>
         </div>`;
     }
-    // Legacy / plain text
     return `<div class="status-entry"><div class="entry-body">${escHtml(entry.trim())}</div></div>`;
   }).join('');
 }
 
 function escHtml(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/\n/g, '<br/>');
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/\n/g, '<br/>');
 }
 
-// ─── SUBMIT STATUS UPDATE ─────────────────────────────────────────────────────
+// ─── SUBMIT UPDATE ────────────────────────────────────────────────────────────
 async function submitUpdate() {
   const text = el.updateText.value.trim();
   if (!text || !state.selectedItem) return;
@@ -327,35 +336,27 @@ async function submitUpdate() {
   showLoading('Posting update…');
 
   try {
-    // Build timestamped entry
     const now    = new Date();
     const date   = now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     const time   = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     const author = state.account?.name || state.account?.username || 'Unknown';
-    const header = `[${date} ${time} | ${author}]`;
-    const entry  = `${header}\n${text}`;
+    const entry  = `[${date} ${time} | ${author}]\n${text}`;
     const divider = '\n───────────────────────────────────────\n';
-
     const existing = (state.selectedItem.statusNotes || '').trim();
     const updated  = existing ? existing + divider + entry : entry;
 
-    // PATCH the SharePoint list item fields
     await graphFetch(
       `/sites/${state.siteId}/lists/${state.listId}/items/${state.selectedItem.id}/fields`,
-      {
-        method: 'PATCH',
-        body: JSON.stringify({ [state.statusNotesField]: updated }),
-      }
+      { method: 'PATCH', body: JSON.stringify({ [state.statusNotesField]: updated }) }
     );
 
-    // Update local state
     state.selectedItem.statusNotes = updated;
     const idx = state.items.findIndex(i => i.id === state.selectedItem.id);
     if (idx !== -1) state.items[idx].statusNotes = updated;
 
     el.updateText.value = '';
     renderStatusHistory();
-    el.submitStatus.textContent = '✓ Update posted successfully.';
+    el.submitStatus.textContent = 'Update posted successfully.';
     el.submitStatus.className = 'submit-status success';
   } catch (e) {
     showError(el.submitError, 'Failed to post update: ' + e.message);
@@ -365,7 +366,6 @@ async function submitUpdate() {
   }
 }
 
-// ─── TEXTAREA → BUTTON STATE ──────────────────────────────────────────────────
 function onTextareaInput() {
   el.submitBtn.disabled = el.updateText.value.trim().length === 0;
   el.submitStatus.textContent = '';
@@ -375,7 +375,12 @@ function onTextareaInput() {
 async function enterApp() {
   el.signinScreen.classList.add('hidden');
   el.appScreen.classList.remove('hidden');
-  el.userName.textContent = state.account?.name || state.account?.username || '';
+
+  const name = state.account?.name || state.account?.username || '';
+  el.userName.textContent = name;
+  if (el.userAvatar) {
+    el.userAvatar.textContent = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+  }
 
   showLoading('Connecting to SharePoint…');
   try {
@@ -389,44 +394,50 @@ async function enterApp() {
   }
 }
 
-// ─── TEAMS SDK INIT ───────────────────────────────────────────────────────────
-async function initTeams() {
-  try {
-    await microsoftTeams.app.initialize();
-    const ctx = await microsoftTeams.app.getContext();
-    // Teams theme support
-    document.body.dataset.theme = ctx.app?.theme || 'default';
-    microsoftTeams.app.registerOnThemeChangeHandler(theme => {
-      document.body.dataset.theme = theme;
-    });
-  } catch {
-    // Running outside Teams (browser) — that's fine
-  }
-}
-
 // ─── BOOTSTRAP ────────────────────────────────────────────────────────────────
 (async function bootstrap() {
+  // 1. Init Teams SDK (detects if we're inside Teams)
   await initTeams();
 
-  // Guard: if client ID is still placeholder, show helpful error
-  if (CONFIG.clientId === 'YOUR_CLIENT_ID_HERE') {
-    el.signinScreen.querySelector('p').innerHTML =
-      '<strong style="color:#c00">Setup required:</strong> Open <code>config.js</code> ' +
-      'and paste your Azure AD App Registration values. See <code>README.md</code> for instructions.';
-    el.signinBtn.disabled = true;
-    return;
-  }
+  // 2. Init MSAL
+  await initMsal();
 
-  const alreadySignedIn = await initMsal();
-
-  el.signinBtn.addEventListener('click', signIn);
-  el.signoutBtn.addEventListener('click', signOut);
+  // 3. Wire up events
+  el.signinBtn?.addEventListener('click', signIn);
+  el.signoutBtn?.addEventListener('click', signOut);
   el.projectSelect.addEventListener('change', onProjectChange);
   el.refreshBtn.addEventListener('click', refreshItems);
   el.updateText.addEventListener('input', onTextareaInput);
   el.submitBtn.addEventListener('click', submitUpdate);
 
+  // 4. Config guard
+  if (CONFIG.clientId === 'YOUR_CLIENT_ID_HERE') {
+    el.signinScreen.querySelector('p').innerHTML =
+      '<strong style="color:#c00">Setup required:</strong> Fill in <code>config.js</code> with your Azure AD values.';
+    el.signinBtn.disabled = true;
+    return;
+  }
+
+  // 5a. Inside Teams → attempt silent SSO first
+  if (state.inTeams) {
+    showLoading('Signing you in…');
+    try {
+      await getTeamsToken();          // populates state.account from JWT
+      await enterApp();
+      return;
+    } catch (e) {
+      // SSO failed (e.g. admin consent not granted yet) → fall through to manual sign-in
+      hideLoading();
+      showError(el.signinError,
+        'Automatic sign-in failed. Click "Sign In" to authenticate manually. ' +
+        '(If this keeps happening, ask your admin to grant consent for this app.)');
+    }
+  }
+
+  // 5b. Outside Teams or SSO failed → check for existing MSAL session
+  const alreadySignedIn = state.account !== null;
   if (alreadySignedIn) {
     await enterApp();
   }
+  // Otherwise show the sign-in screen (already visible by default)
 })();
