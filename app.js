@@ -129,6 +129,14 @@ async function interactiveSignIn() {
     });
     // Store for the whole session — valid ~1 hour, reused by every getToken() call.
     state.teamsAccessToken = accessToken;
+    // Decode user name/email from the JWT payload for display and update attribution.
+    try {
+      const payload = JSON.parse(atob(accessToken.split('.')[1]));
+      state.account = {
+        name:     payload.name || payload.preferred_username || '',
+        username: payload.preferred_username || payload.upn || '',
+      };
+    } catch { /* ignore decode errors */ }
     return accessToken;
   }
 
@@ -223,7 +231,7 @@ async function graphFetch(path, options = {}) {
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
-      ...(options.headers || {}),
+...(options.headers || {}),
     },
   });
   if (!res.ok) {
@@ -273,7 +281,7 @@ async function loadListItems() {
     id:          item.id,
     workItem:    item.fields[state.workItemField]    || '(unnamed)',
     statusNotes: item.fields[state.statusNotesField] || '',
-  }));
+  })).sort((a, b) => a.workItem.localeCompare(b.workItem));
 }
 
 async function refreshItems() {
