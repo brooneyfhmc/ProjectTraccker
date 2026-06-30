@@ -11,7 +11,12 @@
   <p style="font-family:sans-serif;color:#1E3C4F;padding:20px;">Finishing sign-in…</p>
   <script>
     (async function () {
-      await microsoftTeams.app.initialize();
+      // Initialize Teams SDK with a timeout — it may hang in popup windows.
+      // notifySuccess/notifyFailure must be called regardless.
+      await Promise.race([
+        microsoftTeams.app.initialize(),
+        new Promise(resolve => setTimeout(resolve, 2000)),
+      ]);
 
       const msalInstance = new msal.PublicClientApplication({
         auth: {
@@ -27,8 +32,8 @@
         const result = await msalInstance.handleRedirectPromise();
         if (result && result.account) {
           msalInstance.setActiveAccount(result.account);
-          // Pass the access token directly back to the main tab so it doesn't
-          // need to do another silent/popup round-trip to get it.
+          // Pass the access token directly back so the main tab doesn't need
+          // a second round-trip to acquire it.
           microsoftTeams.authentication.notifySuccess(result.accessToken);
         } else {
           microsoftTeams.authentication.notifyFailure('no_account_returned');

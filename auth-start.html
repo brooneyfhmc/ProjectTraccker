@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8" />
   <title>Signing in…</title>
-  <script src="https://res.cdn.office.net/teams-js/2.22.0/js/MicrosoftTeams.min.js"></script>
   <script src="msal-browser.min.js"></script>
   <script src="config.js"></script>
 </head>
@@ -11,23 +10,21 @@
   <p style="font-family:sans-serif;color:#1E3C4F;padding:20px;">Redirecting to sign-in…</p>
   <script>
     (async function () {
-      await microsoftTeams.app.initialize();
-
+      // No Teams SDK needed here — this page just redirects to Microsoft login.
+      // Teams SDK app.initialize() hangs in popup windows; skip it entirely.
       const msalInstance = new msal.PublicClientApplication({
         auth: {
           clientId:    CONFIG.clientId,
           authority:   `https://login.microsoftonline.com/${CONFIG.tenantId}`,
           redirectUri: window.location.origin + '/auth-end.html',
         },
-        // localStorage so the main tab (different window) can read the cached
-        // token after this popup closes.
         cache: { cacheLocation: 'localStorage' },
       });
       await msalInstance.initialize();
 
-      // Kick off the real interactive login inside this Teams-owned popup.
-      // Teams allows this popup; a plain window.open() from inside the tab does not.
-      msalInstance.loginRedirect({ scopes: CONFIG.scopes });
+      // Redirect this popup window to Microsoft's login page.
+      // Microsoft will redirect back to auth-end.html when done.
+      await msalInstance.loginRedirect({ scopes: CONFIG.scopes });
     })();
   </script>
 </body>
