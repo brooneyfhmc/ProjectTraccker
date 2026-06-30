@@ -170,21 +170,23 @@ async function initMsal() {
 
 // ─── TOKEN ACQUISITION (unified) ──────────────────────────────────────────────
 async function getToken() {
-  // Inside Teams: use SSO exchange
-  if (state.inTeams) {
-    return getTokenViaTeamsSSO();
+  // If MSAL already has a cached account (from a prior interactive sign-in),
+  // use it directly — no need to go through Teams SSO or a popup again.
+  if (state.account) {
+    try {
+      const res = await state.msalInstance.acquireTokenSilent({
+        scopes: CONFIG.scopes,
+        account: state.account,
+      });
+      return res.accessToken;
+    } catch {
+      // Silent refresh failed (e.g. token expired and refresh token gone).
+      // Fall through to interactive below.
+    }
   }
 
-  // Outside Teams (browser): standard MSAL silent/popup
-  const request = { scopes: CONFIG.scopes, account: state.account };
-  try {
-    const res = await state.msalInstance.acquireTokenSilent(request);
-    return res.accessToken;
-  } catch {
-    const res = await state.msalInstance.acquireTokenPopup(request);
-    state.account = res.account;
-    return res.accessToken;
-  }
+  // No cached session yet — need interactive sign-in.
+  return interactiveSignIn();
 }
 
 // ─── STANDARD AUTH (browser fallback) ────────────────────────────────────────
@@ -413,7 +415,7 @@ async function enterApp() {
     state.items = await loadListItems();
     populateDropdown();
   } catch (e) {
-    showError(el.loadError, 'Could not load data: ' + e.message);
+    showError(el.loadError, 'Could not load data: ' + (e?.message || JSON.stringify(e) || String(e)));
   } finally {
     hideLoading();
   }
