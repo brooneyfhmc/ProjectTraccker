@@ -265,7 +265,7 @@ async function resolveFieldNames(sampleFields) {
 // ─── LIST DATA ────────────────────────────────────────────────────────────────
 async function loadListItems() {
   const res = await graphFetch(
-    `/sites/${state.siteId}/lists/${state.listId}/items?$expand=fields&$top=500&$orderby=fields/Title asc`
+    `/sites/${state.siteId}/lists/${state.listId}/items?$expand=fields&$top=500`
   );
   const raw = res.value || [];
   if (raw.length > 0) await resolveFieldNames(raw[0].fields);
