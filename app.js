@@ -420,14 +420,9 @@ async function enterApp() {
 }
 
 // ─── BOOTSTRAP ────────────────────────────────────────────────────────────────
-(async function bootstrap() {
-  // 1. Init Teams SDK (detects if we're inside Teams)
-  await initTeams();
-
-  // 2. Init MSAL
-  await initMsal();
-
-  // 3. Wire up events
+(function bootstrap() {
+  // 1. Wire up events FIRST, synchronously, before any async/init work that
+  //    could throw. If init fails below, the buttons must still respond.
   el.signinBtn?.addEventListener('click', signIn);
   el.signoutBtn?.addEventListener('click', signOut);
   el.projectSelect.addEventListener('change', onProjectChange);
@@ -435,7 +430,7 @@ async function enterApp() {
   el.updateText.addEventListener('input', onTextareaInput);
   el.submitBtn.addEventListener('click', submitUpdate);
 
-  // 4. Config guard
+  // 2. Config guard
   if (CONFIG.clientId === 'YOUR_CLIENT_ID_HERE') {
     el.signinScreen.querySelector('p').innerHTML =
       '<strong style="color:#c00">Setup required:</strong> Fill in <code>config.js</code> with your Azure AD values.';
@@ -443,7 +438,27 @@ async function enterApp() {
     return;
   }
 
-  // 5a. Inside Teams → attempt silent SSO first
+  init();
+})();
+
+async function init() {
+  try {
+    await initTeams();
+  } catch (e) {
+    console.error('initTeams failed:', e);
+  }
+
+  try {
+    await initMsal();
+  } catch (e) {
+    console.error('initMsal failed:', e);
+    showError(el.signinError,
+      'Could not initialize sign-in (' + (e?.errorCode || e?.message || e) +
+      '). Click "Sign In" to retry.');
+    return;
+  }
+
+  // Inside Teams → attempt silent SSO first
   if (state.inTeams) {
     showLoading('Signing you in…');
     try {
@@ -459,10 +474,10 @@ async function enterApp() {
     }
   }
 
-  // 5b. Outside Teams or SSO failed → check for existing MSAL session
+  // Outside Teams or SSO failed → check for existing MSAL session
   const alreadySignedIn = state.account !== null;
   if (alreadySignedIn) {
     await enterApp();
   }
   // Otherwise show the sign-in screen (already visible by default)
-})();
+}
