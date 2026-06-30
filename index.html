@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>First Home Project Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── RESET ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── BRAND TOKENS ── */
+    :root {
+      --navy:        #1E3C4F;
+      --navy-deep:   #152d3c;
+      --steel:       #4F758B;
+      --steel-light: #BFCED6;
+      --charcoal:    #2C2A29;
+      --gold:        #D29F13;
+      --gold-dark:   #b78b20;
+      --gray:        #75787B;
+      --silver:      #B5BDC6;
+      --light-gray:  #F4F6F8;
+      --white:       #FFFFFF;
+      --emerald:     #007A53;
+      --error:       #c0392b;
+      --radius-sm:   8px;
+      --radius:      14px;
+      --radius-lg:   20px;
+      --shadow-sm:   0 1px 3px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.06);
+      --shadow:      0 4px 16px rgba(30,60,79,.10), 0 1px 4px rgba(30,60,79,.06);
+      --shadow-lg:   0 16px 48px rgba(0,0,0,.18), 0 4px 16px rgba(0,0,0,.10);
+      --font:        'Poppins', 'Segoe UI', system-ui, sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: var(--font);
+      background: var(--light-gray);
+      color: var(--charcoal);
+      font-size: 14px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .hidden { display: none !important; }
+
+    /* ══════════════════════════════════════════
+       SIGN-IN SCREEN
+    ══════════════════════════════════════════ */
+    #signin-screen {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(ellipse at 20% 50%, rgba(79,117,139,.35) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 20%, rgba(210,159,19,.12) 0%, transparent 50%),
+        linear-gradient(160deg, #0e2533 0%, var(--navy) 50%, #2d5369 100%);
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Dot grid texture */
+    #signin-screen::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle, rgba(255,255,255,.055) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+
+    /* Gold top bar */
+    #signin-screen::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--gold-dark), var(--gold), var(--gold-dark));
+    }
+
+    .signin-card {
+      position: relative;
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 52px 48px 48px;
+      width: 100%;
+      max-width: 440px;
+      text-align: center;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .signin-logo {
+      width: 72px;
+      height: 72px;
+      background: linear-gradient(145deg, var(--navy), #2d5369);
+      border-radius: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+      box-shadow: 0 8px 24px rgba(30,60,79,.3);
+    }
+
+    .signin-logo svg { width: 38px; height: 38px; }
+
+    .signin-card h1 {
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--navy);
+      line-height: 1.2;
+      margin-bottom: 10px;
+      letter-spacing: -.02em;
+    }
+
+    .signin-card p {
+      font-size: 14px;
+      color: var(--gray);
+      margin-bottom: 36px;
+      line-height: 1.65;
+    }
+
+    /* ══════════════════════════════════════════
+       BUTTONS
+    ══════════════════════════════════════════ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 10px 22px;
+      border: none;
+      border-radius: 10px;
+      font-family: var(--font);
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .18s ease;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+      color: var(--navy);
+      box-shadow: 0 3px 10px rgba(210,159,19,.30);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, #e0ab15, var(--gold));
+      box-shadow: 0 6px 18px rgba(210,159,19,.40);
+      transform: translateY(-1px);
+    }
+    .btn-primary:active:not(:disabled) { transform: translateY(0); }
+
+    .btn-navy {
+      background: var(--navy);
+      color: var(--white);
+      box-shadow: 0 3px 10px rgba(30,60,79,.25);
+    }
+    .btn-navy:hover:not(:disabled) {
+      background: var(--navy-deep);
+      box-shadow: 0 6px 18px rgba(30,60,79,.35);
+      transform: translateY(-1px);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: rgba(255,255,255,.75);
+      padding: 7px 12px;
+      border-radius: 8px;
+    }
+    .btn-ghost:hover:not(:disabled) {
+      background: rgba(255,255,255,.12);
+      color: var(--white);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--steel);
+      border: 1.5px solid var(--steel-light);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12.5px;
+    }
+    .btn-outline:hover:not(:disabled) {
+      border-color: var(--navy);
+      color: var(--navy);
+      background: rgba(30,60,79,.04);
+    }
+
+    .btn-signin {
+      width: 100%;
+      padding: 14px 24px;
+      font-size: 15px;
+      border-radius: 12px;
+      letter-spacing: .01em;
+    }
+
+    /* ══════════════════════════════════════════
+       APP LAYOUT
+    ══════════════════════════════════════════ */
+    #app-screen {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .app-header {
+      background: var(--navy);
+      padding: 0 24px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 12px rgba(0,0,0,.18);
+      border-bottom: 2.5px solid var(--gold);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header-right { display: flex; align-items: center; gap: 8px; }
+
+    .header-logo {
+      width: 36px; height: 36px;
+      background: rgba(255,255,255,.1);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255,255,255,.15);
+    }
+
+    .app-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--white);
+      letter-spacing: -.01em;
+    }
+
+    .user-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 20px;
+      padding: 4px 12px 4px 6px;
+    }
+
+    .user-avatar {
+      width: 26px; height: 26px;
+      background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--navy);
+      flex-shrink: 0;
+    }
+
+    .user-name {
+      font-size: 12.5px;
+      color: rgba(255,255,255,.8);
+      font-weight: 500;
+    }
+
+    /* ══════════════════════════════════════════
+       MAIN BODY
+    ══════════════════════════════════════════ */
+    .app-body {
+      flex: 1;
+      padding: 24px 20px 40px;
+      max-width: 800px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* ══════════════════════════════════════════
+       CARDS
+    ══════════════════════════════════════════ */
+    .card {
+      background: var(--white);
+      border: 1px solid rgba(0,0,0,.07);
+      border-radius: var(--radius);
+      padding: 24px 26px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow);
+      transition: box-shadow .2s;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--steel);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-title::before {
+      content: '';
+      display: inline-block;
+      width: 3px;
+      height: 14px;
+      background: var(--gold);
+      border-radius: 2px;
+    }
+
+    /* ══════════════════════════════════════════
+       PROJECT SELECTOR CARD
+    ══════════════════════════════════════════ */
+    .selector-card {
+      background: linear-gradient(135deg, var(--navy) 0%, #2d5369 100%);
+      border: none;
+      color: var(--white);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .selector-card::before {
+      content: '';
+      position: absolute;
+      top: 0; right: 0;
+      width: 180px; height: 180px;
+      background: radial-gradient(circle, rgba(210,159,19,.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .selector-card .card-title {
+      color: rgba(255,255,255,.6);
+    }
+
+    .field-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,.65);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      margin-bottom: 10px;
+    }
+
+    .select-wrapper { position: relative; }
+
+    .field-select {
+      width: 100%;
+      padding: 13px 44px 13px 16px;
+      border: 1.5px solid rgba(255,255,255,.18);
+      border-radius: 10px;
+      background: rgba(255,255,255,.1);
+      color: var(--white);
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 500;
+      appearance: none;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      backdrop-filter: blur(4px);
+    }
+
+    .field-select option { background: var(--navy); color: var(--white); }
+    .field-select:focus {
+      outline: none;
+      border-color: var(--gold);
+      background: rgba(255,255,255,.14);
+      box-shadow: 0 0 0 3px rgba(210,159,19,.2);
+    }
+
+    .select-chevron {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      color: rgba(255,255,255,.6);
+    }
+
+    /* ══════════════════════════════════════════
+       STATUS HISTORY
+    ══════════════════════════════════════════ */
+    .status-history {
+      max-height: 380px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-right: 4px;
+    }
+
+    .status-entry {
+      background: var(--light-gray);
+      border: 1px solid rgba(0,0,0,.06);
+      border-radius: 10px;
+      padding: 14px 16px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .status-entry::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; bottom: 0;
+      width: 3px;
+      background: linear-gradient(180deg, var(--gold), var(--gold-dark));
+      border-radius: 10px 0 0 10px;
+    }
+
+    .entry-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .entry-avatar {
+      width: 24px; height: 24px;
+      background: linear-gradient(135deg, var(--navy), var(--steel));
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--white);
+      flex-shrink: 0;
+    }
+
+    .entry-author {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--navy);
+    }
+
+    .entry-date {
+      font-size: 11px;
+      color: var(--gray);
+      margin-left: auto;
+      background: rgba(0,0,0,.05);
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+
+    .entry-body {
+      font-size: 13.5px;
+      color: var(--charcoal);
+      line-height: 1.65;
+      padding-left: 32px;
+    }
+
+    .placeholder-text {
+      color: var(--gray);
+      font-size: 13px;
+      text-align: center;
+      padding: 24px 0;
+      opacity: .8;
+    }
+
+    /* ══════════════════════════════════════════
+       UPDATE FORM
+    ══════════════════════════════════════════ */
+    .field-textarea {
+      width: 100%;
+      padding: 14px 16px;
+      border: 1.5px solid rgba(0,0,0,.1);
+      border-radius: 10px;
+      background: var(--light-gray);
+      color: var(--charcoal);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.6;
+      resize: vertical;
+      transition: border-color .15s, box-shadow .15s, background .15s;
+      margin-bottom: 14px;
+    }
+
+    .field-textarea:focus {
+      outline: none;
+      border-color: var(--navy);
+      background: var(--white);
+      box-shadow: 0 0 0 3px rgba(30,60,79,.08);
+    }
+
+    .field-textarea::placeholder { color: var(--silver); }
+
+    .submit-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .submit-status {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--gray);
+    }
+
+    .submit-status.success {
+      color: var(--emerald);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .submit-status.success::before {
+      content: '✓';
+      width: 18px; height: 18px;
+      background: var(--emerald);
+      color: white;
+      border-radius: 50%;
+      font-size: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ══════════════════════════════════════════
+       MESSAGES
+    ══════════════════════════════════════════ */
+    .error-msg {
+      margin-top: 10px;
+      padding: 10px 14px;
+      background: #fff5f5;
+      color: var(--error);
+      border-radius: 8px;
+      font-size: 13px;
+      border: 1px solid rgba(192,57,43,.15);
+      border-left: 3px solid var(--error);
+    }
+
+    /* ══════════════════════════════════════════
+       LOADING OVERLAY
+    ══════════════════════════════════════════ */
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(14,37,51,.55);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 999;
+      backdrop-filter: blur(4px);
+    }
+
+    .loading-card {
+      background: var(--white);
+      border-radius: 16px;
+      padding: 32px 40px;
+      text-align: center;
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid rgba(30,60,79,.12);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin .75s linear infinite;
+    }
+
+    .loading-text {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--navy);
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ══════════════════════════════════════════
+       SCROLLBAR
+    ══════════════════════════════════════════ */
+    .status-history::-webkit-scrollbar { width: 5px; }
+    .status-history::-webkit-scrollbar-track { background: transparent; }
+    .status-history::-webkit-scrollbar-thumb { background: var(--steel-light); border-radius: 4px; }
+    .status-history::-webkit-scrollbar-thumb:hover { background: var(--steel); }
+
+    /* Teams dark mode */
+    [data-theme="dark"] {
+      --light-gray: #111B21;
+      --white:      #1A2730;
+      --charcoal:   #E4EDF2;
+      --gray:       #8FA5B2;
+    }
+    [data-theme="dark"] .card { border-color: rgba(255,255,255,.07); }
+    [data-theme="dark"] .status-entry { background: #162330; border-color: rgba(255,255,255,.07); }
+    [data-theme="dark"] .field-textarea { background: #162330; border-color: rgba(255,255,255,.1); color: #E4EDF2; }
+    [data-theme="dark"] .field-textarea:focus { background: #1e2f3d; }
+  </style>
+</head>
+<body>
+
+  <!-- ── SIGN-IN SCREEN ── -->
+  <div id="signin-screen">
+    <div class="signin-card">
+      <div class="signin-logo">
+        <!-- House icon matching First Home brand -->
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M20 6L4 18.5h5V34h8.5V24.5h5V34H31V18.5h5L20 6z" fill="#D29F13"/>
+          <rect x="16.5" y="26" width="7" height="8" rx="1.5" fill="#1E3C4F"/>
+        </svg>
+      </div>
+      <h1>First Home<br/>Project Tracker</h1>
+      <p>Sign in with your Microsoft 365 account to view and post project status updates.</p>
+      <button id="signin-btn" class="btn btn-primary btn-signin">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Sign In with Microsoft
+      </button>
+      <p id="signin-error" class="error-msg hidden" style="margin-top:16px;text-align:left;"></p>
+    </div>
+  </div>
+
+  <!-- ── APP SCREEN ── -->
+  <div id="app-screen" class="hidden">
+
+    <header class="app-header">
+      <div class="header-left">
+        <div class="header-logo">
+          <svg width="20" height="20" viewBox="0 0 40 40" fill="none">
+            <path d="M20 6L4 18.5h5V34h8.5V24.5h5V34H31V18.5h5L20 6z" fill="#D29F13"/>
+            <rect x="16.5" y="26" width="7" height="8" rx="1.5" fill="rgba(255,255,255,.15)"/>
+          </svg>
+        </div>
+        <span class="app-title">First Home Project Tracker</span>
+      </div>
+      <div class="header-right">
+        <div class="user-pill">
+          <div class="user-avatar" id="user-avatar">?</div>
+          <span class="user-name" id="user-name"></span>
+        </div>
+        <button id="signout-btn" class="btn btn-ghost">Sign Out</button>
+      </div>
+    </header>
+
+    <main class="app-body">
+
+      <!-- Project Selector -->
+      <div class="card selector-card">
+        <label class="field-label" for="project-select">Select a Project</label>
+        <div class="select-wrapper">
+          <select id="project-select" class="field-select">
+            <option value="">— Loading projects… —</option>
+          </select>
+          <span class="select-chevron">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+          </span>
+        </div>
+        <p id="load-error" class="error-msg hidden"></p>
+      </div>
+
+      <!-- Detail panel (hidden until project selected) -->
+      <div id="detail-panel" class="hidden">
+
+        <!-- Status History -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Status Notes</span>
+            <button id="refresh-btn" class="btn btn-outline">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <path d="M23 4v6h-6M1 20v-6h6"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              Refresh
+            </button>
+          </div>
+          <div id="status-history" class="status-history">
+            <p class="placeholder-text">No status notes yet.</p>
+          </div>
+        </div>
+
+        <!-- Add Update -->
+        <div class="card">
+          <div class="card-header" style="margin-bottom:14px;">
+            <span class="card-title">Add Status Update</span>
+          </div>
+          <textarea
+            id="update-text"
+            class="field-textarea"
+            placeholder="Describe the current status, blockers, or next steps…"
+            rows="4"
+          ></textarea>
+          <div class="submit-row">
+            <span id="submit-status" class="submit-status"></span>
+            <button id="submit-btn" class="btn btn-navy" disabled>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+              Post Update
+            </button>
+          </div>
+          <p id="submit-error" class="error-msg hidden"></p>
+        </div>
+
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Loading overlay -->
+  <div id="loading" class="loading-overlay hidden">
+    <div class="loading-card">
+      <div class="spinner"></div>
+      <span class="loading-text" id="loading-text">Loading…</span>
+    </div>
+  </div>
+
+  <!-- Microsoft Teams JS SDK -->
+  <script src="https://res.cdn.office.net/teams-js/2.22.0/js/MicrosoftTeams.min.js"></script>
+  <!-- MSAL.js -->
+  <script src="https://alcdn.msauth.net/browser/2.39.0/js/msal-browser.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
