@@ -112,6 +112,49 @@ async function getTokenViaTeamsSSO() {
   }
 }
 
+// ─── TOKEN PERSISTENCE ───────────────────────────────────────────────────────
+const TOKEN_KEY  = 'pt_access_token';
+const EXPIRY_KEY = 'pt_token_expiry';
+const NAME_KEY   = 'pt_user_name';
+const USER_KEY   = 'pt_username';
+
+function saveToken(accessToken) {
+  try {
+    const payload = JSON.parse(atob(accessToken.split('.')[1]));
+    state.account = {
+      name:     payload.name || payload.preferred_username || '',
+      username: payload.preferred_username || payload.upn || '',
+    };
+    // exp is seconds since epoch; subtract 60s buffer
+    const expiry = payload.exp ? (payload.exp - 60) * 1000 : Date.now() + 55 * 60 * 1000;
+    localStorage.setItem(TOKEN_KEY,  accessToken);
+    localStorage.setItem(EXPIRY_KEY, String(expiry));
+    localStorage.setItem(NAME_KEY,   state.account.name);
+    localStorage.setItem(USER_KEY,   state.account.username);
+  } catch { /* ignore */ }
+  state.teamsAccessToken = accessToken;
+}
+
+function restoreToken() {
+  try {
+    const expiry = Number(localStorage.getItem(EXPIRY_KEY) || 0);
+    if (Date.now() > expiry) return false;
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return false;
+    state.teamsAccessToken = token;
+    state.account = {
+      name:     localStorage.getItem(NAME_KEY) || '',
+      username: localStorage.getItem(USER_KEY) || '',
+    };
+    return true;
+  } catch { return false; }
+}
+
+function clearToken() {
+  [TOKEN_KEY, EXPIRY_KEY, NAME_KEY, USER_KEY].forEach(k => localStorage.removeItem(k));
+  state.teamsAccessToken = null;
+}
+
 // ─── INTERACTIVE SIGN-IN (works inside Teams, where plain window.open popups
 // are blocked) ──────────────────────────────────────────────────────────────
 async function interactiveSignIn() {
@@ -127,16 +170,10 @@ async function interactiveSignIn() {
         failureCallback: reject,
       });
     });
-    // Store for the whole session — valid ~1 hour, reused by every getToken() call.
-    state.teamsAccessToken = accessToken;
-    // Decode user name/email from the JWT payload for display and update attribution.
-    try {
-      const payload = JSON.parse(atob(accessToken.split('.')[1]));
-      state.account = {
-        name:     payload.name || payload.preferred_username || '',
-        username: payload.preferred_username || payload.upn || '',
-      };
-    } catch { /* ignore decode errors */ }
+    // Persist the token so the tab reload (navigating away and back) doesn't
+    // require signing in again. Tokens are valid ~1 hour; store the expiry so
+    // we don't try to use a stale one.
+    saveToken(accessToken);
     return accessToken;
   }
 
@@ -215,8 +252,8 @@ async function signIn() {
 }
 
 function signOut() {
+  clearToken();
   if (state.inTeams) {
-    // Can't truly sign out of Teams SSO — just reload
     window.location.reload();
   } else {
     state.msalInstance.logoutPopup({ account: state.account });
@@ -470,7 +507,11 @@ async function init() {
     return;
   }
 
-  // Inside Teams: show the sign-in button — clicking it opens the PKCE popup.
+  // Inside Teams: try to restore a previously acquired token before prompting.
+  if (state.inTeams && restoreToken()) {
+    await enterApp();
+    return;
+  }
 
   // Outside Teams or SSO failed → check for existing MSAL session
   const alreadySignedIn = state.account !== null;
