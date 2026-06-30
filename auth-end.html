@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Finishing sign-in…</title>
+  <script src="https://res.cdn.office.net/teams-js/2.22.0/js/MicrosoftTeams.min.js"></script>
+  <script src="https://alcdn.msauth.net/browser/2.39.0/js/msal-browser.min.js"></script>
+  <script src="config.js"></script>
+</head>
+<body>
+  <p style="font-family:sans-serif;color:#1E3C4F;padding:20px;">Finishing sign-in…</p>
+  <script>
+    (async function () {
+      await microsoftTeams.app.initialize();
+
+      const msalInstance = new msal.PublicClientApplication({
+        auth: {
+          clientId:    CONFIG.clientId,
+          authority:   `https://login.microsoftonline.com/${CONFIG.tenantId}`,
+          redirectUri: window.location.origin + '/auth-end.html',
+        },
+        cache: { cacheLocation: 'localStorage' },
+      });
+      await msalInstance.initialize();
+
+      try {
+        const result = await msalInstance.handleRedirectPromise();
+        if (result && result.account) {
+          msalInstance.setActiveAccount(result.account);
+          // Token is now cached in localStorage; the main tab will pick it up.
+          microsoftTeams.authentication.notifySuccess();
+        } else {
+          microsoftTeams.authentication.notifyFailure('no_account_returned');
+        }
+      } catch (err) {
+        microsoftTeams.authentication.notifyFailure(err.errorCode || err.message || 'auth_failed');
+      }
+    })();
+  </script>
+</body>
+</html>

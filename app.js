@@ -79,38 +79,64 @@ function getTeamsToken() {
   });
 }
 
-// The Teams SSO token is scoped only to your app (audience = clientId).
-// To call Graph API we need to exchange it for a Graph token via MSAL
-// On-Behalf-Of flow — handled transparently by acquireTokenSilent below.
+// NOTE: a browser-only app (no backend) cannot exchange a Teams SSO token
+// for a Graph token itself — that exchange (On-Behalf-Of) requires a
+// confidential client holding a secret on a server. Without a backend, the
+// realistic path is: identify the user from the Teams token (free), then
+// get a real Graph token via MSAL — silently if we already have a cached
+// MSAL session, or via Teams' own auth popup (interactiveSignIn) the first
+// time consent is needed.
 async function getTokenViaTeamsSSO() {
   const teamsToken = await getTeamsToken();
   state.teamsToken = teamsToken;
 
-  // Decode name/email from the Teams token (it's a standard JWT)
+  // Decode name/email from the Teams token (it's a standard JWT) just for display.
   try {
     const payload = JSON.parse(atob(teamsToken.split('.')[1]));
-    state.account = {
-      name:     payload.name || payload.preferred_username || '',
-      username: payload.preferred_username || payload.upn || '',
-    };
+    if (!state.account) {
+      state.account = {
+        name:     payload.name || payload.preferred_username || '',
+        username: payload.preferred_username || payload.upn || '',
+      };
+    }
   } catch { /* ignore decode errors */ }
 
-  // Use MSAL to silently exchange for a Graph-scoped token (OBO flow)
-  const msalRequest = {
-    scopes: CONFIG.scopes,
-    // Provide the Teams token as login hint so MSAL can find/create the account
-    loginHint: state.account?.username,
-  };
-
+  const msalRequest = { scopes: CONFIG.scopes, loginHint: state.account?.username };
   try {
     const result = await state.msalInstance.acquireTokenSilent(msalRequest);
-    return result.accessToken;
-  } catch {
-    // If silent OBO fails, fall back to interactive (rare — usually a consent issue)
-    const result = await state.msalInstance.acquireTokenPopup(msalRequest);
     state.account = result.account;
     return result.accessToken;
+  } catch {
+    // No cached MSAL session yet — need one interactive consent via Teams' popup.
+    return interactiveSignIn();
   }
+}
+
+// ─── INTERACTIVE SIGN-IN (works inside Teams, where plain window.open popups
+// are blocked) ──────────────────────────────────────────────────────────────
+async function interactiveSignIn() {
+  if (state.inTeams) {
+    await new Promise((resolve, reject) => {
+      microsoftTeams.authentication.authenticate({
+        url: window.location.origin + '/auth-start.html',
+        width: 600,
+        height: 535,
+        successCallback: resolve,
+        failureCallback: reject,
+      });
+    });
+    // auth-end.html cached the token in localStorage; read it back here.
+    const accounts = state.msalInstance.getAllAccounts();
+    if (accounts.length === 0) throw new Error('Sign-in completed but no account was found.');
+    state.account = accounts[0];
+    const result = await state.msalInstance.acquireTokenSilent({ scopes: CONFIG.scopes, account: state.account });
+    return result.accessToken;
+  }
+
+  // Outside Teams: a normal browser popup works fine.
+  const result = await state.msalInstance.loginPopup({ scopes: CONFIG.scopes });
+  state.account = result.account;
+  return result.accessToken;
 }
 
 // ─── MSAL INIT ────────────────────────────────────────────────────────────────
@@ -121,7 +147,9 @@ async function initMsal() {
       authority:   `https://login.microsoftonline.com/${CONFIG.tenantId}`,
       redirectUri: window.location.origin + window.location.pathname,
     },
-    cache: { cacheLocation: 'sessionStorage' },
+    // localStorage so a token acquired in the auth-start/auth-end popup
+    // (a separate window) is visible to this tab/iframe afterward.
+    cache: { cacheLocation: 'localStorage' },
   };
 
   state.msalInstance = new msal.PublicClientApplication(msalConfig);
@@ -165,10 +193,7 @@ async function signIn() {
   el.signinBtn.disabled = true;
   el.signinBtn.textContent = 'Signing in…';
   try {
-    await state.msalInstance.loginPopup({ scopes: CONFIG.scopes });
-    const accounts = state.msalInstance.getAllAccounts();
-    if (accounts.length === 0) throw new Error('No account returned.');
-    state.account = accounts[0];
+    await interactiveSignIn();
     await enterApp();
   } catch (e) {
     showError(el.signinError, e.message || 'Sign-in failed. Please try again.');
@@ -426,11 +451,11 @@ async function enterApp() {
       await enterApp();
       return;
     } catch (e) {
-      // SSO failed (e.g. admin consent not granted yet) → fall through to manual sign-in
+      // Teams identity context itself failed (rare) → fall through to manual sign-in
       hideLoading();
       showError(el.signinError,
-        'Automatic sign-in failed. Click "Sign In" to authenticate manually. ' +
-        '(If this keeps happening, ask your admin to grant consent for this app.)');
+        'Automatic sign-in failed: ' + (e?.message || e) +
+        '. Click "Sign In" to authenticate manually.');
     }
   }
 
