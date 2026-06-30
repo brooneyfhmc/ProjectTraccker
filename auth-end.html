@@ -27,8 +27,9 @@
         const result = await msalInstance.handleRedirectPromise();
         if (result && result.account) {
           msalInstance.setActiveAccount(result.account);
-          // Token is now cached in localStorage; the main tab will pick it up.
-          microsoftTeams.authentication.notifySuccess();
+          // Pass the access token directly back to the main tab so it doesn't
+          // need to do another silent/popup round-trip to get it.
+          microsoftTeams.authentication.notifySuccess(result.accessToken);
         } else {
           microsoftTeams.authentication.notifyFailure('no_account_returned');
         }

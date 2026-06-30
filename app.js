@@ -1,15 +1,16 @@
 // ─── STATE ────────────────────────────────────────────────────────────────────
 const state = {
-  msalInstance:     null,
-  account:          null,
-  siteId:           null,
-  listId:           null,
-  items:            [],
-  selectedItem:     null,
-  workItemField:    null,
-  statusNotesField: null,
-  inTeams:          false,   // true when running inside Teams client
-  teamsToken:       null,    // raw Teams SSO token (exchanged for Graph token)
+  msalInstance:       null,
+  account:            null,
+  cachedAccessToken:  null,  // token passed directly from auth-end.html popup
+  siteId:             null,
+  listId:             null,
+  items:              [],
+  selectedItem:       null,
+  workItemField:      null,
+  statusNotesField:   null,
+  inTeams:            false,
+  teamsToken:         null,
 };
 
 // ─── DOM REFS ─────────────────────────────────────────────────────────────────
@@ -116,7 +117,9 @@ async function getTokenViaTeamsSSO() {
 // are blocked) ──────────────────────────────────────────────────────────────
 async function interactiveSignIn() {
   if (state.inTeams) {
-    await new Promise((resolve, reject) => {
+    // auth-end.html calls notifySuccess(accessToken), so the resolved value IS
+    // the access token string — no second round-trip to MSAL needed.
+    const accessToken = await new Promise((resolve, reject) => {
       microsoftTeams.authentication.authenticate({
         url: window.location.origin + '/auth-start.html',
         width: 600,
@@ -125,12 +128,13 @@ async function interactiveSignIn() {
         failureCallback: reject,
       });
     });
-    // auth-end.html cached the token in localStorage; read it back here.
+    // Grab account from MSAL cache (auth-end.html wrote it to localStorage).
     const accounts = state.msalInstance.getAllAccounts();
-    if (accounts.length === 0) throw new Error('Sign-in completed but no account was found.');
-    state.account = accounts[0];
-    const result = await state.msalInstance.acquireTokenSilent({ scopes: CONFIG.scopes, account: state.account });
-    return result.accessToken;
+    if (accounts.length > 0) state.account = accounts[0];
+    // Store the token so getToken() can return it directly on the next call
+    // without needing another silent request.
+    state.cachedAccessToken = accessToken;
+    return accessToken;
   }
 
   // Outside Teams: a normal browser popup works fine.
@@ -170,8 +174,16 @@ async function initMsal() {
 
 // ─── TOKEN ACQUISITION (unified) ──────────────────────────────────────────────
 async function getToken() {
-  // If MSAL already has a cached account (from a prior interactive sign-in),
-  // use it directly — no need to go through Teams SSO or a popup again.
+  // Use the token passed directly from the auth popup (good for ~1 hour).
+  if (state.cachedAccessToken) {
+    const token = state.cachedAccessToken;
+    // Clear it so the next call attempts a proper silent refresh instead.
+    state.cachedAccessToken = null;
+    return token;
+  }
+
+  // After the first call, try MSAL silent refresh (uses the refresh token
+  // that auth-end.html stored in localStorage).
   if (state.account) {
     try {
       const res = await state.msalInstance.acquireTokenSilent({
@@ -180,12 +192,10 @@ async function getToken() {
       });
       return res.accessToken;
     } catch {
-      // Silent refresh failed (e.g. token expired and refresh token gone).
-      // Fall through to interactive below.
+      // Silent refresh failed — fall through to interactive.
     }
   }
 
-  // No cached session yet — need interactive sign-in.
   return interactiveSignIn();
 }
 
